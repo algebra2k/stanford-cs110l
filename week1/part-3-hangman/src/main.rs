@@ -62,11 +62,14 @@ fn main() {
             .read_line(&mut guess)
             .expect("Error reading line");
 
-        if guess.len() != 2 {
-            println!("You only input one character");
+        if guess.contains('\n') {
+            guess.truncate(guess.len() - 1);
+            if guess.len() != 1 {
+                println!("You only input one character");
+                continue;
+            }
         }
 
-        guess.truncate(guess.len() - 1);
         let input_char_vec: Vec<char> = guess.chars().collect();
 
         if !find_and_replace_char(
