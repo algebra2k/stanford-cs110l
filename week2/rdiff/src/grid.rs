@@ -30,18 +30,30 @@ impl Grid {
     /// but others argue that makes code needlessly complex. Here, we decided to return Option to
     /// give you more practice with Option :) and because this similar library returns Option:
     /// https://docs.rs/array2d/0.2.1/array2d/struct.Array2D.html
-    #[allow(unused)] // TODO: delete this line when you implement this function
     pub fn get(&self, row: usize, col: usize) -> Option<usize> {
-        unimplemented!();
-        // Be sure to delete the #[allow(unused)] line above
+        if row < self.num_rows {
+            Some(self.elems[row * (self.num_rows - 1) + col])
+        } else {
+            None
+        }
     }
 
     /// Sets the element at the specified location to the specified value. If the location is out
     /// of bounds, returns Err with an error message.
-    #[allow(unused)] // TODO: delete this line when you implement this function
     pub fn set(&mut self, row: usize, col: usize, val: usize) -> Result<(), &'static str> {
-        unimplemented!();
         // Be sure to delete the #[allow(unused)] line above
+        if row < self.num_rows {
+            self.elems[row * (self.num_rows - 1) + col] = val;
+            Ok(())
+        } else {
+            // Note: we use Box create heap variable and then we use Box::leak
+            // consume and leak the Box, finally we create static str in local stack
+            // see https://doc.rust-lang.org/std/boxed/struct.Box.html#examples-23
+            Err(Box::leak(Box::new(format!(
+                "bad index {}",
+                row + (self.num_rows - 1) + col
+            ))))
+        }
     }
 
     /// Prints a visual representation of the grid. You can use this for debugging.
