@@ -24,20 +24,17 @@ fn read_file_lines(filename: &String) -> Result<Vec<String>, io::Error> {
     Ok(lines)
 }
 
-#[allow(unused)] // TODO: delete this line when you implement this function
 fn lcs(seq1: &Vec<String>, seq2: &Vec<String>) -> Grid {
     // Note: Feel free to use unwrap() in this code, as long as you're basically certain it'll
     // never happen. Conceptually, unwrap() is justified here, because there's not really any error
     // condition you're watching out for (i.e. as long as your code is written correctly, nothing
     // external can go wrong that we would want to handle in higher-level functions). The unwrap()
     // calls act like having asserts in C code, i.e. as guards against programming error.
-    let m = seq1.len() + 1;
-    let n = seq2.len() + 1;
-    let mut grid = Grid::new(m, n );
-    let mut count = 0;
-    for i in 1..m {
-        for j in 1..n {
-            count+=1;
+    let m = seq1.len();
+    let n = seq2.len();
+    let mut grid = Grid::new(m + 1, n + 1);
+    for i in 1..m+1 {
+        for j in 1..n+1 {
             if seq1[i-1] == seq2[j-1] {
                 grid.set(i, j, 1 + grid.get(i-1, j-1).unwrap()).unwrap()
             } else {
@@ -46,13 +43,44 @@ fn lcs(seq1: &Vec<String>, seq2: &Vec<String>) -> Grid {
         }
     }
     grid
-    // Be sure to delete the #[allow(unused)] line above
 }
 
-#[allow(unused)] // TODO: delete this line when you implement this function
 fn print_diff(lcs_table: &Grid, lines1: &Vec<String>, lines2: &Vec<String>, i: usize, j: usize) {
-    unimplemented!();
-    // Be sure to delete the #[allow(unused)] line above
+    let mut m = 0;
+    let mut n = 0;
+    loop {
+        if m >= i || n >= j {
+            break;
+        }
+        if m < i && n  < j && lines1[m+1] == lines2[n+1]  {
+            println!(" {}",lines1[m+1]);
+            m+=1;
+            n+=1;
+        } else if n < j && (m+1 == i || lcs_table.get(m, n+1).unwrap() >= lcs_table.get(m+1, n).unwrap()) {
+            println!("+ {}", lines2[n+1]); 
+            n+=1;
+        } else if m < i && (n+1 == j || lcs_table.get(m, n+1).unwrap() < lcs_table.get(m+1, n).unwrap()) {
+            println!("- {}", lines1[m+1]); 
+            m+=1
+        } else {
+            println!(" ");
+        }
+    }
+    //// Note  recursive implementation 
+    // if i > 0 && j > 0 && lines1[i-1] == lines2[j - 1]  {
+    //     // not change 
+    //     print_diff(lcs_table, lines1, lines2, i-1, j-1);
+    //     print!(" {}",lines1[i-1]);
+    // } else if j > 0 && (i == 0 || lcs_table.get(i, j-1).unwrap() >= lcs_table.get(i-1, j).unwrap()) {
+    //     print_diff(lcs_table, lines1, lines2, i, j-1);
+    //     print!("+ {}", lines2[j - 1]); 
+    // } else if i > 0 && (j == 0 || lcs_table.get(i, j-1).unwrap() < lcs_table.get(i-1, j).unwrap()) {
+    //     print_diff(lcs_table, lines1, lines2, i-1, j);
+    //     print!("- {}", lines1[i - 1]); 
+    // } else {
+    //     print!(" ");
+    // }
+    // println!();
 }
 
 #[allow(unused)] // TODO: delete this line when you implement this function
@@ -64,7 +92,11 @@ fn main() {
     }
     let filename1 = &args[1];
     let filename2 = &args[2];
-
+    let lines1 = read_file_lines(filename1).unwrap();
+    let lines2 = read_file_lines(filename2).unwrap();
+    let grid = lcs(&lines1, &lines2);
+    let (m, n) = grid.size();
+    print_diff(&grid, &lines1, &lines2, lines1.len(), lines2.len());
     unimplemented!();
     // Be sure to delete the #[allow(unused)] line above
 }

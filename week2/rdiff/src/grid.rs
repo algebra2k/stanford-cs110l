@@ -31,9 +31,10 @@ impl Grid {
     /// give you more practice with Option :) and because this similar library returns Option:
     /// https://docs.rs/array2d/0.2.1/array2d/struct.Array2D.html
     pub fn get(&self, row: usize, col: usize) -> Option<usize> {
-        if row < self.num_rows {
-            Some(self.elems[row * (self.num_rows - 1) + col])
+        if row < self.num_rows && col < self.num_cols {
+            Some(self.elems[row * self.num_cols + col])
         } else {
+            println!("{},{}", row, col);
             None
         }
     }
@@ -42,8 +43,8 @@ impl Grid {
     /// of bounds, returns Err with an error message.
     pub fn set(&mut self, row: usize, col: usize, val: usize) -> Result<(), &'static str> {
         // Be sure to delete the #[allow(unused)] line above
-        if row < self.num_rows {
-            self.elems[row * (self.num_rows - 1) + col] = val;
+        if row < self.num_rows && col < self.num_cols {
+            self.elems[row * self.num_cols + col] = val;
             Ok(())
         } else {
             // Note: we use Box create heap variable and then we use Box::leak
@@ -55,6 +56,10 @@ impl Grid {
             ))))
         }
     }
+
+    // fn index(&self, row: usize, col: usize) -> usize {
+    //     row * (self.num_rows - 1) + col
+    // }
 
     /// Prints a visual representation of the grid. You can use this for debugging.
     pub fn display(&self) {
@@ -84,7 +89,6 @@ mod test {
         let n_rows = 4;
         let n_cols = 3;
         let mut grid = Grid::new(n_rows, n_cols);
-
         // Initialize grid
         for r in 0..n_rows {
             for c in 0..n_cols {
