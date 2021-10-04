@@ -32,9 +32,8 @@ impl Grid {
     /// https://docs.rs/array2d/0.2.1/array2d/struct.Array2D.html
     pub fn get(&self, row: usize, col: usize) -> Option<usize> {
         if row < self.num_rows && col < self.num_cols {
-            Some(self.elems[row * self.num_cols + col])
+            Some(self.elems[self.index(row, col)])
         } else {
-            println!("{},{}", row, col);
             None
         }
     }
@@ -44,7 +43,8 @@ impl Grid {
     pub fn set(&mut self, row: usize, col: usize, val: usize) -> Result<(), &'static str> {
         // Be sure to delete the #[allow(unused)] line above
         if row < self.num_rows && col < self.num_cols {
-            self.elems[row * self.num_cols + col] = val;
+            let index = self.index(row, col);
+            self.elems[index] = val;
             Ok(())
         } else {
             // Note: we use Box create heap variable and then we use Box::leak
@@ -52,14 +52,14 @@ impl Grid {
             // see https://doc.rust-lang.org/std/boxed/struct.Box.html#examples-23
             Err(Box::leak(Box::new(format!(
                 "bad index {}",
-                row + (self.num_rows - 1) + col
+               self.index(row, col) 
             ))))
         }
     }
 
-    // fn index(&self, row: usize, col: usize) -> usize {
-    //     row * (self.num_rows - 1) + col
-    // }
+    fn index(&self, row: usize, col: usize) -> usize {
+        row * self.num_cols + col
+    }
 
     /// Prints a visual representation of the grid. You can use this for debugging.
     pub fn display(&self) {
