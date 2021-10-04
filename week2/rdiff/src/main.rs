@@ -1,3 +1,4 @@
+use std::cmp::max;
 use grid::Grid; // For lcs()
 use std::env;
 use std::fs::File; // For read_file_lines()
@@ -30,7 +31,21 @@ fn lcs(seq1: &Vec<String>, seq2: &Vec<String>) -> Grid {
     // condition you're watching out for (i.e. as long as your code is written correctly, nothing
     // external can go wrong that we would want to handle in higher-level functions). The unwrap()
     // calls act like having asserts in C code, i.e. as guards against programming error.
-    unimplemented!();
+    let m = seq1.len() + 1;
+    let n = seq2.len() + 1;
+    let mut grid = Grid::new(m, n );
+    let mut count = 0;
+    for i in 1..m {
+        for j in 1..n {
+            count+=1;
+            if seq1[i-1] == seq2[j-1] {
+                grid.set(i, j, 1 + grid.get(i-1, j-1).unwrap()).unwrap()
+            } else {
+                grid.set(i, j, max(grid.get(i-1, j).unwrap(), grid.get(i, j - 1).unwrap())).unwrap()
+            }
+        }
+    }
+    grid
     // Be sure to delete the #[allow(unused)] line above
 }
 
