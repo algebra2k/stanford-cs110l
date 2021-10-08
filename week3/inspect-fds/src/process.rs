@@ -15,6 +15,16 @@ impl Process {
         Process { pid, ppid, command }
     }
 
+    pub fn print(&self) {
+        println!(
+            "{}",
+            format!(
+                "========== \"{}\" (pid {}, ppid {}) ==========",
+                self.command, self.pid, self.ppid
+            )
+        );
+        println!("{:?}", self.list_fds().unwrap());
+    }
     /// This function returns a list of file descriptor numbers for this Process, if that
     /// information is available (it will return None if the information is unavailable). The
     /// information will commonly be unavailable if the process has exited. (Zombie processes
@@ -23,7 +33,32 @@ impl Process {
     #[allow(unused)] // TODO: delete this line for Milestone 3
     pub fn list_fds(&self) -> Option<Vec<usize>> {
         // TODO: implement for Milestone 3
-        unimplemented!();
+        // 1. open /proc/{self.pid}/fd
+        let proc_path = format!("/proc/{}/fd", self.pid);
+        let read_dir: fs::ReadDir = match fs::read_dir(proc_path) {
+            Ok(read_dir) => read_dir,
+            Err(_) => return None,
+        };
+        let mut fds = Vec::new();
+        for entry in read_dir {
+            if !entry.is_ok() {
+                continue;
+            }
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let fd: Option<usize> = match path.file_name() {
+                Some(fd_os_str) => match fd_os_str.to_str() {
+                    Some(fd_str) => fd_str.parse::<usize>().ok(),
+                    None => None,
+                },
+                None => None,
+            };
+
+            if fd.is_some() {
+                fds.push(fd.unwrap());
+            }
+        }
+        Some(fds)
     }
 
     /// This function returns a list of (fdnumber, OpenFile) tuples, if file descriptor
