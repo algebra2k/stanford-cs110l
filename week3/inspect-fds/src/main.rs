@@ -10,7 +10,6 @@ fn main() {
         println!("Usage: {} <name or pid of target>", args[0]);
         std::process::exit(1);
     }
-    #[allow(unused)] // TODO: delete this line for Milestone 1
     let target = &args[1];
 
     let process: Option<process::Process> =
@@ -27,6 +26,15 @@ fn main() {
     };
 
     process.print();
+
+    match ps_utils::get_child_processes(process.pid) {
+        Ok(process_vec) => {
+            for it in &process_vec {
+                it.print();
+            }
+        }
+        Err(_) => {}
+    }
 }
 
 #[cfg(test)]

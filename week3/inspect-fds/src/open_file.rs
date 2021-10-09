@@ -103,7 +103,6 @@ impl OpenFile {
     /// This file takes the contents of /proc/{pid}/fdinfo/{fdnum} for some file descriptor and
     /// extracts the access mode for that open file using the "flags:" field contained in the
     /// fdinfo text. It returns None if the "flags" field couldn't be found.
-    #[allow(unused)] // TODO: delete this line for Milestone 4
     fn parse_access_mode(fdinfo: &str) -> Option<AccessMode> {
         // Regex::new will return an Error if there is a syntactical error in our regular
         // expression. We call unwrap() here because that indicates there's an obvious problem with
@@ -134,10 +133,16 @@ impl OpenFile {
     /// program and we don't need to do fine-grained error handling, so returning Option is a
     /// simple way to indicate that "hey, we weren't able to get the necessary information"
     /// without making a big deal of it.)
-    #[allow(unused)] // TODO: delete this line for Milestone 4
     pub fn from_fd(pid: usize, fd: usize) -> Option<OpenFile> {
-        // TODO: implement for Milestone 4
-        unimplemented!();
+        let proc_fd_path = format!("/proc/{}/fd/{}", pid, fd);
+        let pb = fs::read_link(proc_fd_path).ok()?;
+        let fdinfo_path = format!("/proc/{}/fdinfo/{}", pid, fd);
+        let fdinfo_string = fs::read_to_string(fdinfo_path).ok()?;
+        Some(OpenFile {
+            name: OpenFile::path_to_name(pb.to_str()?),
+            cursor: OpenFile::parse_cursor(&fdinfo_string)?,
+            access_mode: OpenFile::parse_access_mode(&fdinfo_string)?,
+        })
     }
 
     /// This function returns the OpenFile's name with ANSI escape codes included to colorize
