@@ -52,8 +52,11 @@ fn factor_number(num: u32) {
 }
 
 /// Returns a list of numbers supplied via argv.
-#[allow(dead_code)]
-fn get_input_numbers() -> VecDeque<u32> {
+fn get_input_numbers() -> Mutex<VecDeque<u32>> {
+    Mutex::new(get_input_numbers_with_hold_lock())
+}
+
+fn get_input_numbers_with_hold_lock() -> VecDeque<u32> {
     let mut numbers = VecDeque::new();
     for arg in env::args().skip(1) {
         if let Ok(val) = arg.parse::<u32>() {
@@ -71,12 +74,24 @@ fn main() {
     println!("Farm starting on {} CPUs", num_threads);
     let start = Instant::now();
 
-    // TODO: call get_input_numbers() and store a queue of numbers to factor
-
-    // TODO: spawn `num_threads` threads, each of which pops numbers off the queue and calls
-    // factor_number() until the queue is empty
-
-    // TODO: join all the threads you created
-
+    let num_deque: Arc<Mutex<VecDeque<u32>>> = Arc::new(get_input_numbers());
+    let mut handles = Vec::new();
+    for _ in 0..num_threads {
+        let num_deque = Arc::clone(&num_deque);
+        let handle = thread::spawn(move || loop {
+            let num: Option<u32>;
+            {
+                num = num_deque.lock().unwrap().pop_front();
+            }
+            match num {
+                None => break,
+                Some(num) => factor_number(num),
+            }
+        });
+        handles.push(handle);
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
     println!("Total execution time: {:?}", start.elapsed());
 }
