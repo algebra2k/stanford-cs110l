@@ -2,6 +2,7 @@ use crossbeam_channel;
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
 
+// version 2: use channel
 fn parallel_map_channel<T, U, F>(input_vec: Vec<T>, num_threads: usize, f: F) -> Vec<U>
 where
     F: FnOnce(T) -> U + Send + Copy + 'static,
@@ -54,7 +55,7 @@ where
     }
     output_vec
 }
-
+// version 1: use Arc + Mutex
 fn parallel_map<T, U, F>(input_vec: Vec<T>, num_threads: usize, f: F) -> Vec<U>
 where
     F: FnOnce(T) -> U + Send + Copy + 'static,
@@ -74,7 +75,6 @@ where
 
     let mut handles = Vec::new();
     for _ in 0..num_threads {
-        // let sender = sender2.clone();
         let receiver = rerceiver.clone();
         let shared_output_vec = shared_output_vec.clone();
         let handle = thread::spawn(move || {
