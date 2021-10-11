@@ -18,15 +18,6 @@ pub enum Status {
     Signaled(signal::Signal),
 }
 
-/// This function calls ptrace with PTRACE_TRACEME to enable debugging on a process. You should use
-/// pre_exec with Command to call this in the child process.
-fn child_traceme() -> Result<(), std::io::Error> {
-    ptrace::traceme().or(Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "ptrace TRACEME failed",
-    )))
-}
-
 pub struct Inferior {
     child: Child,
 }
@@ -52,23 +43,13 @@ impl Inferior {
         };
 
         // wait stopped signal
-        let inferior = match inferior.wait(Some(WaitPidFlag::WSTOPPED)) {
+        match inferior.wait(Some(WaitPidFlag::WSTOPPED)) {
             Ok(status) => match status {
                 Status::Stopped(_signal, _rip) => Some(inferior),
                 _ => None,
             },
             Err(_) => None,
-        };
-
-        if inferior.is_some() {
-            return inferior;
         }
-
-        println!(
-            "Inferior::new not implemented! target={}, args={:?}",
-            target, args
-        );
-        None
     }
 
     pub fn cont(&self) -> Result<Status, nix::Error> {
