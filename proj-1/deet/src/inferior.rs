@@ -77,4 +77,15 @@ impl Inferior {
             other => panic!("waitpid returned unexpected status: {:?}", other),
         })
     }
+
+    /// Quit child process
+    pub fn quit(&mut self) -> Result<Status, nix::Error> {
+        match self.child.kill() {
+            Ok(_) => Ok(Status::Exited(0)),
+            Err(error) => Err(match error.raw_os_error() {
+                Some(errno) => nix::errno::Errno::from_errno(nix::errno::Errno::from_i32(errno)),
+                None => nix::errno::Errno::UnknownErrno,
+            }),
+        }
+    }
 }
