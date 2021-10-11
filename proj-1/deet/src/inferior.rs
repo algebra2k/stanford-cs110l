@@ -2,7 +2,8 @@ use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
-use std::process::Child;
+use std::os::unix::process::CommandExt;
+use std::process::{Child, Command};
 
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
@@ -34,12 +35,47 @@ impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
     pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
-        // TODO: implement me!
+        let mut cmd = Command::new(target);
+        //exec ptrace before target exec
+        unsafe {
+            cmd.pre_exec(|| -> std::io::Result<()> {
+                match ptrace::traceme() {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err(std::io::Error::new(std::io::ErrorKind::Other, error)),
+                }
+            });
+        }
+
+        // spawn child process exec target
+        let inferior = Inferior {
+            child: cmd.args(args).spawn().ok()?,
+        };
+
+        // wait stopped signal
+        let inferior = match inferior.wait(Some(WaitPidFlag::WSTOPPED)) {
+            Ok(status) => match status {
+                Status::Stopped(_signal, _rip) => Some(inferior),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+
+        if inferior.is_some() {
+            return inferior;
+        }
+
         println!(
             "Inferior::new not implemented! target={}, args={:?}",
             target, args
         );
         None
+    }
+
+    pub fn cont(&self) -> Result<Status, nix::Error> {
+        match ptrace::cont(self.pid(), None) {
+            Ok(_) => self.wait(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// Returns the pid of this inferior.
