@@ -2,12 +2,13 @@ use crate::debugger_command::DebuggerCommand;
 use crate::inferior::Inferior;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-
+use crate::dwarf_data::{DwarfData, Error as DwarfError};
 pub struct Debugger {
     target: String,
     history_path: String,
     readline: Editor<()>,
     inferior: Option<Inferior>,
+    dwarf_data: Option<DwarfData>,
 }
 
 impl Debugger {
@@ -25,6 +26,7 @@ impl Debugger {
             history_path,
             readline,
             inferior: None,
+            dwarf_data: None,
         }
     }
 
@@ -62,7 +64,7 @@ impl Debugger {
                     } else {
                         println!("Error starting subprocess");
                     }
-                }
+                },
                 DebuggerCommand::Cont => {
                    match self.inferior.as_ref() {
                        Some(inferior) =>  match inferior.cont() {
@@ -81,6 +83,17 @@ impl Debugger {
                            println!("Error continue running, not such subprocess")
                        }
                    } 
+                },
+                DebuggerCommand::Backtrace => {
+                    self.dwarf_data = Some(self.load_dwarf_data(&self.target));
+                    match self.inferior.as_ref() {
+                        Some(inferior) =>  match inferior.print_backtrace( self.dwarf_data.as_ref().unwrap()) {
+                            _ => ()
+                        },
+                        None => {
+                            println!("Error continue running, not such subprocess")
+                        }
+                    }  
                 },
                 DebuggerCommand::Quit => {
                     let inferior = self.inferior.as_mut().unwrap();
@@ -140,6 +153,21 @@ impl Debugger {
                         println!("Unrecognized command.");
                     }
                 }
+            }
+        }
+    }
+
+    /// load_dwarf_data load DwarfData from target 
+    fn load_dwarf_data(&self, target: &str) -> DwarfData{
+        match DwarfData::from_file(target) {
+            Ok(data) => data,
+            Err(DwarfError::ErrorOpeningFile) => {
+                println!("Could not open file {}", target);
+                std::process::exit(1);
+            }
+            Err(DwarfError::DwarfFormatError(err)) => {
+                println!("Could not debugging symbols from {}: {:?}", target, err);
+                std::process::exit(1);
             }
         }
     }
