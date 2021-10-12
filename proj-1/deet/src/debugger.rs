@@ -32,27 +32,73 @@ impl Debugger {
         loop {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => {
+                    if self.inferior.is_some() {
+                        match self.inferior.as_mut().unwrap().quit() {
+                            Ok(_) => {
+                                println!("The {} subprocess already running", self.target);
+                                println!("Quit running inferior (pid {})", self.inferior.as_ref().unwrap().pid().as_raw() as i32);
+                                self.inferior = None
+                            },
+                            Err(error) => match error.as_errno() {
+                                // ignore ESRCH errno
+                                Some(nix::errno::Errno::ESRCH) | None => (),
+                                Some(errno) => {
+                                    println!("Quit running inferior (pid {}) error {}", self.inferior.as_ref().unwrap().pid().as_raw() as i32, errno) 
+                                }
+                            }
+                            
+                        }
+                    }
+
                     if let Some(inferior) = Inferior::new(&self.target, &args) {
                         // Create the inferior
                         self.inferior = Some(inferior);
                         match self.inferior.as_ref().unwrap().cont() {
-                            Ok(_) => {
-                                println!("continue run {}", self.target);
-                            }
+                            Ok(_) => (),
                             Err(error) => {
-                                println!("continue run {} error: {}", self.target, error);
+                                println!("run {} error: {}", self.target, error);
                             }
                         }
-                        // TODO (milestone 1): make the inferior run
-                        // You may use self.inferior.as_mut().unwrap() to get a mutable reference
-                        // to the Inferior object
                     } else {
                         println!("Error starting subprocess");
                     }
                 }
+                DebuggerCommand::Cont => {
+                   match self.inferior.as_ref() {
+                       Some(inferior) =>  match inferior.cont() {
+                           Ok(_) => (),
+                           Err(error) => match error.as_errno() {
+                            // ignore ESRCH errno
+                            Some(nix::errno::Errno::ESRCH) | None => {
+                              println!("no such running {} subprocess", self.target)  
+                            },
+                            Some(errno) => {
+                                println!("Error continue running {} subprocess {}", self.target, errno)
+                            }
+                        },
+                       },
+                       None => {
+                           println!("Error continue running, not such subprocess")
+                       }
+                   } 
+                },
                 DebuggerCommand::Quit => {
+                    let inferior = self.inferior.as_mut().unwrap();
+                    match inferior.quit() {
+                        Ok(_) => {
+                            println!("Killing running inferior (pid {})", inferior.pid().as_raw() as i32)
+                        },
+                        Err(error) => match error.as_errno() {
+                            // ignore ESRCH errno
+                            Some(nix::errno::Errno::ESRCH) | None => (),
+                            Some(errno) => {
+                                println!("Killing running inferior (pid {}) error {}", inferior.pid().as_raw() as i32, errno) 
+                            }
+                        }
+                    }
                     return;
-                }
+                },
+                
             }
         }
     }
