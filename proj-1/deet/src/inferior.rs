@@ -5,6 +5,8 @@ use nix::unistd::Pid;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 use crate::dwarf_data;
+use std::mem::size_of;
+
 
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
@@ -23,10 +25,33 @@ pub struct Inferior {
     child: Child,
 }
 
+/// align address by word size
+fn align_addr_to_word(addr: usize) -> usize {
+    addr & (-(size_of::<usize>() as isize) as usize)
+}
+
+impl Inferior {
+    /// Write a byte to a word
+    fn write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
+        let aligned_addr = align_addr_to_word(addr);
+        let byte_offset = addr - aligned_addr;
+        let word = ptrace::read(self.pid(), aligned_addr as ptrace::AddressType)? as u64;
+        let orig_byte = (word >> 8 * byte_offset) & 0xff;
+        let masked_word = word & !(0xff << 8 * byte_offset);
+        let updated_word = masked_word | ((val as u64) << 8 * byte_offset);
+        ptrace::write(
+            self.pid(),
+            aligned_addr as ptrace::AddressType,
+            updated_word as *mut std::ffi::c_void,
+        )?;
+        Ok(orig_byte as u8)
+    }
+}
+
 impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
-    pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
+    pub fn new(target: &str, args: &Vec<String>, breakpoints: &Vec<usize>) -> Option<Inferior> {
         let mut cmd = Command::new(target);
         //exec ptrace before target exec
         unsafe {
@@ -39,14 +64,24 @@ impl Inferior {
         }
 
         // spawn child process exec target
-        let inferior = Inferior {
+        let mut inferior = Inferior {
             child: cmd.args(args).spawn().ok()?,
         };
+
+        
 
         // wait stopped signal
         match inferior.wait(Some(WaitPidFlag::WSTOPPED)) {
             Ok(status) => match status {
-                Status::Stopped(_signal, _rip) => Some(inferior),
+                Status::Stopped(signal, _rip) => match signal {
+                    signal::Signal::SIGTRAP => {
+                        for breakpoint in breakpoints.iter() {
+                            inferior.write_byte(*breakpoint, 0xcc).ok()?;
+                        }
+                        Some(inferior)
+                    },
+                    _ => None,
+                },
                 _ => None,
             },
             Err(_) => None,
@@ -104,7 +139,9 @@ impl Inferior {
     pub fn wait(&self, options: Option<WaitPidFlag>) -> Result<Status, nix::Error> {
         Ok(match waitpid(self.pid(), options)? {
             WaitStatus::Exited(_pid, exit_code) => Status::Exited(exit_code),
-            WaitStatus::Signaled(_pid, signal, _core_dumped) => Status::Signaled(signal),
+            WaitStatus::Signaled(_pid, signal, _core_dumped) => {
+                Status::Signaled(signal)
+            },
             WaitStatus::Stopped(_pid, signal) => {
                 let regs = ptrace::getregs(self.pid())?;
                 Status::Stopped(signal, regs.rip as usize)
@@ -123,4 +160,6 @@ impl Inferior {
             }),
         }
     }
+
+
 }

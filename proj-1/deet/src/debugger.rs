@@ -9,6 +9,7 @@ pub struct Debugger {
     readline: Editor<()>,
     inferior: Option<Inferior>,
     dwarf_data: Option<DwarfData>,
+    breakpoint_vec: Vec<usize>,
 }
 
 impl Debugger {
@@ -21,13 +22,18 @@ impl Debugger {
         // Attempt to load history from ~/.deet_history if it exists
         let _ = readline.load_history(&history_path);
 
-        Debugger {
+        let mut debugger = Debugger {
             target: target.to_string(),
             history_path,
             readline,
             inferior: None,
-            dwarf_data: None,
-        }
+            dwarf_data: None, 
+            breakpoint_vec: Vec::new(),
+        };
+
+        debugger.dwarf_data = Some(debugger.load_dwarf_data(&target));
+        debugger.dwarf_data.as_ref().unwrap().print();
+        debugger
     }
 
     pub fn run(&mut self) {
@@ -52,11 +58,16 @@ impl Debugger {
                         }
                     }
 
-                    if let Some(inferior) = Inferior::new(&self.target, &args) {
+                    if let Some(inferior) = Inferior::new(&self.target, &args, &self.breakpoint_vec) {
                         // Create the inferior
                         self.inferior = Some(inferior);
                         match self.inferior.as_ref().unwrap().cont() {
-                            Ok(_) => (),
+                            Ok(status) => match status {
+                                crate::inferior::Status::Stopped(signal, _rip) => {
+                                 println!("Child stopped (signal {})", signal);
+                                }
+                                _ => (),
+                            },
                             Err(error) => {
                                 println!("run {} error: {}", self.target, error);
                             }
@@ -68,7 +79,12 @@ impl Debugger {
                 DebuggerCommand::Cont => {
                    match self.inferior.as_ref() {
                        Some(inferior) =>  match inferior.cont() {
-                           Ok(_) => (),
+                           Ok(status) => match status {
+                               crate::inferior::Status::Stopped(signal, _rip) => {
+                                println!("Child stopped (signal {})", signal);
+                               }
+                               _ => (),
+                           },
                            Err(error) => match error.as_errno() {
                             // ignore ESRCH errno
                             Some(nix::errno::Errno::ESRCH) | None => {
@@ -85,7 +101,6 @@ impl Debugger {
                    } 
                 },
                 DebuggerCommand::Backtrace => {
-                    self.dwarf_data = Some(self.load_dwarf_data(&self.target));
                     match self.inferior.as_ref() {
                         Some(inferior) =>  match inferior.print_backtrace( self.dwarf_data.as_ref().unwrap()) {
                             _ => ()
@@ -95,7 +110,26 @@ impl Debugger {
                         }
                     }  
                 },
+                DebuggerCommand::Break(args) => {
+                    if args.len() == 0 {
+                        println!("no set breakpoint");
+                        continue;
+                    }
+                    match Debugger::parse_address(&args[0]) {
+                        Some(addr) => {
+                            self.breakpoint_vec.push(addr);
+                            println!("Set breakpoint {} at {}", self.breakpoint_vec.len() - 1, &args[0]);
+                            continue;
+                        },
+                        None => {
+                            println!("Set breakpoint at {} failed", &args[0]);
+                            continue;
+                        }
+
+                    }
+                }
                 DebuggerCommand::Quit => {
+                    // FIXME: inferior may be None
                     let inferior = self.inferior.as_mut().unwrap();
                     match inferior.quit() {
                         Ok(_) => {
@@ -170,5 +204,15 @@ impl Debugger {
                 std::process::exit(1);
             }
         }
+    }
+
+    /// Parse input addr to unsize
+    fn parse_address(addr: &str) ->Option<usize> {
+        let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
+            &addr[2..]
+        } else {
+            &addr
+        };
+        usize::from_str_radix(addr_without_0x, 16).ok()
     }
 }
