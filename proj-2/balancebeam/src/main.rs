@@ -4,6 +4,8 @@ mod response;
 use clap::Clap;
 use rand::{Rng, SeedableRng};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use threadpool::ThreadPool;
 
 /// Contains information parsed from the command-line invocation of balancebeam. The Clap macros
 /// provide a fancy way to automatically construct a command-line argument parser.
@@ -26,9 +28,9 @@ struct CmdOptions {
     )]
     active_health_check_interval: usize,
     #[clap(
-    long,
-    about = "Path to send request to for active health checks",
-    default_value = "/"
+        long,
+        about = "Path to send request to for active health checks",
+        default_value = "/"
     )]
     active_health_check_path: String,
     #[clap(
@@ -90,10 +92,17 @@ fn main() {
         active_health_check_path: options.active_health_check_path,
         max_requests_per_minute: options.max_requests_per_minute,
     };
+
+    let share_state: Arc<Mutex<ProxyState>> = Arc::new(Mutex::new(state));
+
+    let num_threads = num_cpus::get();
+    let thread_pool = ThreadPool::new(num_threads);
+
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
             // Handle the connection!
-            handle_connection(stream, &state);
+            // handle_connection(stream, &state);
+            dispatch_connection_handle(&thread_pool, stream, share_state.clone());
         }
     }
 }
@@ -111,11 +120,29 @@ fn connect_to_upstream(state: &ProxyState) -> Result<TcpStream, std::io::Error> 
 
 fn send_response(client_conn: &mut TcpStream, response: &http::Response<Vec<u8>>) {
     let client_ip = client_conn.peer_addr().unwrap().ip().to_string();
-    log::info!("{} <- {}", client_ip, response::format_response_line(&response));
+    log::info!(
+        "{} <- {}",
+        client_ip,
+        response::format_response_line(&response)
+    );
     if let Err(error) = response::write_to_stream(&response, client_conn) {
         log::warn!("Failed to send response to client: {}", error);
         return;
     }
+}
+
+fn dispatch_connection_handle(
+    thread_pool: &ThreadPool,
+    client_conn: TcpStream,
+    share_state: Arc<Mutex<ProxyState>>,
+) {
+    thread_pool.execute(move || {
+        let state;
+        {
+            state = share_state.lock().unwrap();
+        }
+        handle_connection(client_conn, &state);
+    })
 }
 
 fn handle_connection(mut client_conn: TcpStream, state: &ProxyState) {
@@ -177,7 +204,11 @@ fn handle_connection(mut client_conn: TcpStream, state: &ProxyState) {
 
         // Forward the request to the server
         if let Err(error) = request::write_to_stream(&request, &mut upstream_conn) {
-            log::error!("Failed to send request to upstream {}: {}", upstream_ip, error);
+            log::error!(
+                "Failed to send request to upstream {}: {}",
+                upstream_ip,
+                error
+            );
             let response = response::make_http_error(http::StatusCode::BAD_GATEWAY);
             send_response(&mut client_conn, &response);
             return;
