@@ -1,15 +1,23 @@
 use crate::debugger_command::DebuggerCommand;
+use crate::dwarf_data::{DwarfData, Error as DwarfError};
 use crate::inferior::Inferior;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use crate::dwarf_data::{DwarfData, Error as DwarfError};
+use std::collections::HashMap;
+
+#[derive(Clone)]
+pub struct Breakpoint {
+    pub breakpoint: usize,
+    pub ori_byte: u8,
+}
+
 pub struct Debugger {
     target: String,
     history_path: String,
     readline: Editor<()>,
     inferior: Option<Inferior>,
     dwarf_data: Option<DwarfData>,
-    breakpoint_vec: Vec<usize>,
+    breakpoint_hmap: HashMap<usize, Breakpoint>,
 }
 
 impl Debugger {
@@ -27,8 +35,8 @@ impl Debugger {
             history_path,
             readline,
             inferior: None,
-            dwarf_data: None, 
-            breakpoint_vec: Vec::new(),
+            dwarf_data: None,
+            breakpoint_hmap: HashMap::new(),
         };
 
         debugger.dwarf_data = Some(debugger.load_dwarf_data(&target));
@@ -44,27 +52,40 @@ impl Debugger {
                         match self.inferior.as_mut().unwrap().quit() {
                             Ok(_) => {
                                 println!("The {} subprocess already running", self.target);
-                                println!("Quit running inferior (pid {})", self.inferior.as_ref().unwrap().pid().as_raw() as i32);
+                                println!(
+                                    "Quit running inferior (pid {})",
+                                    self.inferior.as_ref().unwrap().pid().as_raw() as i32
+                                );
                                 self.inferior = None
-                            },
+                            }
                             Err(error) => match error.as_errno() {
                                 // ignore ESRCH errno
                                 Some(nix::errno::Errno::ESRCH) | None => (),
                                 Some(errno) => {
-                                    println!("Quit running inferior (pid {}) error {}", self.inferior.as_ref().unwrap().pid().as_raw() as i32, errno) 
+                                    println!(
+                                        "Quit running inferior (pid {}) error {}",
+                                        self.inferior.as_ref().unwrap().pid().as_raw() as i32,
+                                        errno
+                                    )
                                 }
-                            }
-                            
+                            },
                         }
                     }
 
-                    if let Some(inferior) = Inferior::new(&self.target, &args, &self.breakpoint_vec) {
+                    if let Some(inferior) =
+                        Inferior::new(&self.target, &args, &mut self.breakpoint_hmap)
+                    {
                         // Create the inferior
                         self.inferior = Some(inferior);
-                        match self.inferior.as_ref().unwrap().cont() {
+                        match self
+                            .inferior
+                            .as_mut()
+                            .unwrap()
+                            .cont(&mut self.breakpoint_hmap)
+                        {
                             Ok(status) => match status {
                                 crate::inferior::Status::Stopped(signal, _rip) => {
-                                 println!("Child stopped (signal {})", signal);
+                                    println!("Child stopped (signal {})", signal);
                                 }
                                 _ => (),
                             },
@@ -75,57 +96,74 @@ impl Debugger {
                     } else {
                         println!("Error starting subprocess");
                     }
-                },
+                }
                 DebuggerCommand::Cont => {
-                   match self.inferior.as_ref() {
-                       Some(inferior) =>  match inferior.cont() {
-                           Ok(status) => match status {
-                               crate::inferior::Status::Stopped(signal, _rip) => {
-                                println!("Child stopped (signal {})", signal);
-                               }
-                               _ => (),
-                           },
-                           Err(error) => match error.as_errno() {
-                            // ignore ESRCH errno
-                            Some(nix::errno::Errno::ESRCH) | None => {
-                              println!("no such running {} subprocess", self.target)  
+                    match self.inferior.as_mut() {
+                        Some(inferior) => match inferior.cont(&mut self.breakpoint_hmap) {
+                            Ok(status) => match status {
+                                crate::inferior::Status::Stopped(signal, _rip) => {
+                                    println!("Child stopped (signal {})", signal);
+                                    // continue next instruction
+                                }
+                                _ => (),
                             },
-                            Some(errno) => {
-                                println!("Error continue running {} subprocess {}", self.target, errno)
-                            }
-                        },
-                       },
-                       None => {
-                           println!("Error continue running, not such subprocess")
-                       }
-                   } 
-                },
-                DebuggerCommand::Backtrace => {
-                    match self.inferior.as_ref() {
-                        Some(inferior) =>  match inferior.print_backtrace( self.dwarf_data.as_ref().unwrap()) {
-                            _ => ()
+                            Err(error) => match error.as_errno() {
+                                // ignore ESRCH errno
+                                Some(nix::errno::Errno::ESRCH) | None => {
+                                    println!("no such running {} subprocess", self.target)
+                                }
+                                Some(errno) => {
+                                    println!(
+                                        "Error continue running {} subprocess {}",
+                                        self.target, errno
+                                    )
+                                }
+                            },
                         },
                         None => {
                             println!("Error continue running, not such subprocess")
                         }
-                    }  
+                    }
+                }
+                DebuggerCommand::Backtrace => match self.inferior.as_ref() {
+                    Some(inferior) => {
+                        match inferior.print_backtrace(self.dwarf_data.as_ref().unwrap()) {
+                            _ => (),
+                        }
+                    }
+                    None => {
+                        println!("Error continue running, not such subprocess")
+                    }
                 },
                 DebuggerCommand::Break(args) => {
                     if args.len() == 0 {
                         println!("no set breakpoint");
                         continue;
                     }
-                    match Debugger::parse_address(&args[0]) {
-                        Some(addr) => {
-                            self.breakpoint_vec.push(addr);
-                            println!("Set breakpoint {} at {}", self.breakpoint_vec.len() - 1, &args[0]);
-                            continue;
-                        },
+
+                    let addr = match Debugger::parse_address(&args[0]) {
+                        Some(addr) => addr,
                         None => {
                             println!("Set breakpoint at {} failed", &args[0]);
                             continue;
                         }
+                    };
+                    match self.inferior.as_mut() {
+                        Some(inferior) => {
+                            let ori_byte = match inferior.write_byte(addr, 0xcc) {
+                                Ok(ori_byte) => ori_byte,
+                                Err(error) => {
+                                    println!("Error ({}) Set breakpoint {:#x}", error, addr);
+                                    continue;
+                                }
+                            };
 
+                            self.insert_breakpoint(addr, ori_byte);
+                        }
+                        None => {
+                            self.insert_breakpoint(addr, 0xcc);
+                            continue;
+                        }
                     }
                 }
                 DebuggerCommand::Quit => {
@@ -133,19 +171,25 @@ impl Debugger {
                     let inferior = self.inferior.as_mut().unwrap();
                     match inferior.quit() {
                         Ok(_) => {
-                            println!("Killing running inferior (pid {})", inferior.pid().as_raw() as i32)
-                        },
+                            println!(
+                                "Killing running inferior (pid {})",
+                                inferior.pid().as_raw() as i32
+                            )
+                        }
                         Err(error) => match error.as_errno() {
                             // ignore ESRCH errno
                             Some(nix::errno::Errno::ESRCH) | None => (),
                             Some(errno) => {
-                                println!("Killing running inferior (pid {}) error {}", inferior.pid().as_raw() as i32, errno) 
+                                println!(
+                                    "Killing running inferior (pid {}) error {}",
+                                    inferior.pid().as_raw() as i32,
+                                    errno
+                                )
                             }
-                        }
+                        },
                     }
                     return;
-                },
-                
+                }
             }
         }
     }
@@ -191,8 +235,8 @@ impl Debugger {
         }
     }
 
-    /// load_dwarf_data load DwarfData from target 
-    fn load_dwarf_data(&self, target: &str) -> DwarfData{
+    /// load_dwarf_data load DwarfData from target
+    fn load_dwarf_data(&self, target: &str) -> DwarfData {
         match DwarfData::from_file(target) {
             Ok(data) => data,
             Err(DwarfError::ErrorOpeningFile) => {
@@ -207,12 +251,27 @@ impl Debugger {
     }
 
     /// Parse input addr to unsize
-    fn parse_address(addr: &str) ->Option<usize> {
+    fn parse_address(addr: &str) -> Option<usize> {
         let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
             &addr[2..]
         } else {
             &addr
         };
         usize::from_str_radix(addr_without_0x, 16).ok()
+    }
+
+    fn insert_breakpoint(&mut self, addr: usize, val: u8) {
+        self.breakpoint_hmap.insert(
+            addr,
+            Breakpoint {
+                breakpoint: addr,
+                ori_byte: val,
+            },
+        );
+        println!(
+            "Set breakpoint {} at {:#x}",
+            self.breakpoint_hmap.len() - 1,
+            addr
+        );
     }
 }
