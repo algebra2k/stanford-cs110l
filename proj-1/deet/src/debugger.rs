@@ -141,7 +141,7 @@ impl Debugger {
                         continue;
                     }
 
-                    let addr = match Debugger::parse_address(&args[0]) {
+                    let addr = match self.parse_address(&args[0]) {
                         Some(addr) => addr,
                         None => {
                             println!("Set breakpoint at {} failed", &args[0]);
@@ -251,13 +251,26 @@ impl Debugger {
     }
 
     /// Parse input addr to unsize
-    fn parse_address(addr: &str) -> Option<usize> {
-        let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
-            &addr[2..]
+    fn parse_address(&self, addr: &str) -> Option<usize> {
+        let addr_lower = addr.to_lowercase();
+        if addr_lower.starts_with("0x") {
+            usize::from_str_radix(&addr_lower[2..], 16).ok()
+        } else if addr.starts_with("*") {
+            usize::from_str_radix(&addr_lower[1..], 16).ok()
         } else {
-            &addr
-        };
-        usize::from_str_radix(addr_without_0x, 16).ok()
+            let line_number = addr.parse::<usize>().ok();
+            if line_number.is_some() {
+                return self
+                    .dwarf_data
+                    .as_ref()
+                    .unwrap()
+                    .get_addr_for_line(None, line_number.unwrap());
+            }
+            self.dwarf_data
+                .as_ref()
+                .unwrap()
+                .get_addr_for_function(None, addr)
+        }
     }
 
     fn insert_breakpoint(&mut self, addr: usize, val: u8) {

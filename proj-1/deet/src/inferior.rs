@@ -31,6 +31,7 @@ fn align_addr_to_word(addr: usize) -> usize {
     addr & (-(size_of::<usize>() as isize) as usize)
 }
 
+#[warn(dead_code)]
 fn get_file_and_fn_name(
     data: &dwarf_data::DwarfData,
     instruction_ptr: usize,
