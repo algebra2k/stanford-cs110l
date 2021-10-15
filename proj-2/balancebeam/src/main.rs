@@ -2,7 +2,7 @@ mod request;
 mod response;
 
 use clap::Clap;
-// use rand::{Rng, SeedableRng};
+use rand::{Rng, SeedableRng};
 // use std::net::{TcpListener, TcpStream};
 // use std::sync::{Arc, Mutex};
 // use threadpool::ThreadPool;
@@ -74,21 +74,37 @@ struct ProxyState {
 
 impl ProxyState {
     pub async fn select_upstream(&mut self) -> Option<TcpStream> {
+        // check all upstream and change state one.
         for i in 0..self.upstream_addresses.len() {
             let address = &self.upstream_addresses[i].address;
             match TcpStream::connect(address).await {
-                Ok(stream) => {
+                Ok(_stream) => {
                     self.upstream_addresses[i].state = UpstreamState::Active;
-                    return Some(stream);
+                    // return Some(stream);
                 }
                 Err(err) => {
                     log::error!("Failed to connect to upstream {}: {}", address, err);
                     self.upstream_addresses[i].state = UpstreamState::Dead;
-                    continue;
+                    // continue;
                 }
             }
         }
-        None
+
+        // filter upstream with active upstream
+        let active_upstreams = self
+            .upstream_addresses
+            .iter()
+            .filter(|upstream| matches!(upstream.state, UpstreamState::Active))
+            .collect::<Vec<&Upstream>>();
+
+        // random select active upstream
+        let mut rng = rand::rngs::StdRng::from_entropy();
+        let upstream_idx = rng.gen_range(0, active_upstreams.len());
+        let upstream_ip = &active_upstreams[upstream_idx].address;
+        match TcpStream::connect(upstream_ip).await {
+            Ok(stream) => Some(stream),
+            Err(_err) => None,
+        }
     }
 }
 
