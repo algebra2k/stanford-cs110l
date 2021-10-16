@@ -1,3 +1,4 @@
+mod rate_limiting;
 mod request;
 mod response;
 
@@ -12,6 +13,8 @@ use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio::{task, time};
+
+use crate::rate_limiting::FixWindowRateLimit;
 
 /// Contains information parsed from the command-line invocation of balancebeam. The Clap macros
 /// provide a fancy way to automatically construct a command-line argument parser.
@@ -230,8 +233,10 @@ async fn main() {
         max_requests_per_minute: options.max_requests_per_minute,
     };
 
+    let shared_rate_limit: Arc<Mutex<FixWindowRateLimit>> = Arc::new(Mutex::new(
+        FixWindowRateLimit::new(state.max_requests_per_minute.clone()),
+    ));
     let share_state: Arc<Mutex<ProxyState>> = Arc::new(Mutex::new(state));
-
     // let num_threads = num_cpus::get();
     // let thread_pool = ThreadPool::new(num_threads);
 
@@ -247,7 +252,8 @@ async fn main() {
         match listener.accept().await {
             Ok((stream, _sock_addr)) => {
                 // task::spawn(async );
-                dispatch_connection_handle(stream, share_state.clone()).await;
+                dispatch_connection_handle(stream, share_state.clone(), shared_rate_limit.clone())
+                    .await;
             }
             Err(e) => {
                 println!("couldn't get client: {:?}", e);
@@ -294,12 +300,20 @@ async fn send_response(client_conn: &mut TcpStream, response: &http::Response<Ve
 //     })
 // }
 
-async fn dispatch_connection_handle(client_conn: TcpStream, share_state: Arc<Mutex<ProxyState>>) {
-    tokio::spawn(async move { handle_connection(client_conn, share_state).await })
+async fn dispatch_connection_handle(
+    client_conn: TcpStream,
+    share_state: Arc<Mutex<ProxyState>>,
+    rate_limit: Arc<Mutex<FixWindowRateLimit>>,
+) {
+    tokio::spawn(async move { handle_connection(client_conn, share_state, rate_limit).await })
         .await
         .unwrap();
 }
-async fn handle_connection(mut client_conn: TcpStream, share_state: Arc<Mutex<ProxyState>>) {
+async fn handle_connection(
+    mut client_conn: TcpStream,
+    share_state: Arc<Mutex<ProxyState>>,
+    share_rate_limit: Arc<Mutex<FixWindowRateLimit>>,
+) {
     let client_ip = client_conn.peer_addr().unwrap().ip().to_string();
     log::info!("Connection received from {}", client_ip);
 
@@ -323,8 +337,17 @@ async fn handle_connection(mut client_conn: TcpStream, share_state: Arc<Mutex<Pr
         }
     };
     drop(state);
-    let upstream_ip = client_conn.peer_addr().unwrap().ip().to_string();
 
+    let upstream_ip = client_conn.peer_addr().unwrap().ip().to_string();
+    let mut rate_limit;
+    {
+        rate_limit = share_rate_limit.lock().await;
+    }
+    if rate_limit.rate_limit(upstream_ip.as_str()).await {
+        let response = response::make_http_error(http::StatusCode::TOO_MANY_REQUESTS);
+        send_response(&mut client_conn, &response).await;
+        return;
+    }
     // The cliet may now send us one or more requests. Keep trying to read requests until the
     // client hangs up or we get an error.
     loop {
