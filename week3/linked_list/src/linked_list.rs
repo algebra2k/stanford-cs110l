@@ -1,28 +1,61 @@
 use std::fmt;
 use std::option::Option;
 
-pub struct LinkedListIntoIter<T> {
+pub struct Iter<'a, T: 'a>(Option<&'a Node<T>>);
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.take().map(|node| {
+            self.0 = node.next.as_ref().map(|node| &**node);
+            &node.value
+        })
+    }
+}
+
+pub struct IterMut<'a, T: 'a>(Option<&'a mut Node<T>>);
+
+impl<'a, T> Iterator for IterMut<'a, T> {
+    type Item = &'a mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        // self.0.take get Option<&'a mut Node<T>> to map &'a mut Node<t>
+        // self.0.take can guaraantee that there is only one &mut pointing
+        // to value at any time.
+        self.0.take().map(|node| {
+            self.0 = node.next.as_mut().map(|node| &mut **node);
+            &mut node.value
+        })
+    }
+}
+
+
+impl<T> LinkedList<T> {
+    pub fn iter(&self) -> Iter<T> {
+        Iter(self.head.as_ref().map(|node| &**node))
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        // 1. as_mut get Option<&mut T> to map
+        // 2. *node deref &mut Box get mut Box<Node<T>>
+        // 3. **node deref mut Box get mut Node<T>
+        // 4. &mut **node get Node<t> mut reference
+        IterMut(self.head.as_mut().map(|node| &mut **node))
+    }
+}
+
+
+pub struct LinkedListIter<T> {
     cur: Option<Box<Node<T>>>,
 }
 
-impl<T> Iterator for LinkedListIntoIter<T>
-where
-    T: Clone,
+impl<T> Iterator for LinkedListIter<T>
 {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur.is_none() {
-            None
-        } else {
-            // let next_node: Box<Node<T>> = self.cur.as_ref().unwrap().next.as_ref().unwrap().clone();
-            // self.cur = Some(next_node);
-            // i didn't get it , i was just in awe.
-            let val = self.cur.as_ref().unwrap().value.clone();
-            let cur_node = self.cur.take();
-            let next_node = cur_node.unwrap().next.take();
-            self.cur = next_node;
-            Some(val)
-        }
+        self.cur.take().map(|mut box_node| {
+            self.cur = box_node.next.take();
+            box_node.value
+        })
     }
 }
 
@@ -31,17 +64,29 @@ where
     T: Clone,
 {
     type Item = T;
-    type IntoIter = LinkedListIntoIter<Self::Item>;
+    type IntoIter = LinkedListIter<Self::Item>;
     fn into_iter(self) -> Self::IntoIter {
-        LinkedListIntoIter {
+        LinkedListIter {
             // this will be clone the whole linkedlist
             cur: self.head.clone(),
         }
     }
 }
 
-pub struct LinkedListIterator<'a, T: 'a> {
-    cur: &'a Option<Box<Node<T>>>,
+impl<'a, T> IntoIterator for &'a LinkedList<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        Iter(self.head.as_ref().map(|node| &**node))
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut LinkedList<T> {
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        IterMut(self.head.as_mut().map(|node| &mut **node))
+    }
 }
 
 pub struct LinkedList<T> {
@@ -68,6 +113,7 @@ where
     T: Clone,
 {
     fn clone(&self) -> Self {
+        println!("clone");
         Node {
             value: self.value.clone(),
             next: self.next.clone(),
@@ -134,26 +180,6 @@ impl<T> PartialEq for LinkedList<T> {
     }
 }
 
-impl<'a, T> Iterator for LinkedListIterator<'a, T> {
-    type Item = &'a T;
-    fn next(&mut self) -> Option<&'a T> {
-        match self.cur {
-            None => None,
-            Some(node) => {
-                self.cur = &node.next;
-                Some(&node.value)
-            }
-        }
-    }
-}
-
-impl<'a, T> IntoIterator for &'a LinkedList<T> {
-    type Item = &'a T;
-    type IntoIter = LinkedListIterator<'a, T>;
-    fn into_iter(self) -> Self::IntoIter {
-        LinkedListIterator { cur: &self.head }
-    }
-}
 
 impl<T> fmt::Display for LinkedList<T>
 where

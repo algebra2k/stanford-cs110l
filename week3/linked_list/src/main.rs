@@ -16,20 +16,50 @@ fn main() {
     println!("{}", list.to_string()); // ToString impl for anything impl Display
 
     // If you implement iterator trait:
+    //
+    print!("use &iter for list: ");
     for val in &list {
-        println!("{}", val);
+        print!("{} ", val);
     }
+    println!();
 
+    print!("use &iter for list again: ");
+    for val in list.iter() {
+        print!("{} ", val);
+    }
+    println!();
+
+    print!("use iter_mut for list (value + 10): ");
+    for val in list.iter_mut() {
+        *val += 10
+    }
+    for val in list.iter() {
+        print!("{} ", val);
+    }
+    println!();
+
+    print!("use iter_mut for list (value + 10) again: ");
+    for val in &mut list {
+        *val += 10
+    }
+    for val in list.iter() {
+        print!("{} ", val);
+    }
+    println!();
+
+    // move here
+    print!("use iter for list: ");
     for val in list {
-        println!("{}", val);
+        print!("{} ", val);
     }
+    println!();
 
-    let mut str_list: LinkedList<String> = LinkedList::new();
-    for i in 0..10 {
-        str_list.push_front(format!("str-{}", i + 1));
-    }
+    //let mut str_list: LinkedList<String> = LinkedList::new();
+    //for i in 0..10 {
+    //    str_list.push_front(format!("str-{}", i + 1));
+    //}
 
-    for val in &str_list {
-        println!("{}", val);
-    }
+    //for val in &str_list {
+    //    println!("{}", val);
+    //}
 }
